@@ -1,0 +1,302 @@
+{
+  "server_port":		          "8080",
+  "log_level":		              "CALL",
+
+  "amqp_url": "amqp://user:pw@rabbitmq:5672/",
+  "amqp_consumer_name": "matview_1",
+  "AmqpReconnectTimeout": 10,
+
+  "force_user": "true",
+  "force_auth": "true",
+
+  "elastic_url": "http://elastic:9200",
+  "elastic_retry": 3,
+  "create_index": "true",
+
+  "events": {
+    "permission":[
+      {
+        "type":"child",
+        "target": "deviceinstance",
+        "where": [{"target_feature": "device.id", "operation":"==", "event_feature":"resource"}],
+        "if": [{"feature": "kind", "operation": "==", "value": "deviceinstance"}],
+        "features": [
+          {"name": "command", "path": "$.command+", "temp":true},
+          {"name": "user", "path": "$.User+", "omitempty": true},
+          {"name": "group", "path": "$.Group+", "omitempty": true},
+          {"name": "right", "path": "$.Right+", "temp":true},
+          {"name": "kind", "path": "$.Kind+", "temp":true},
+          {"name": "resource", "path": "$.Resource+", "temp":true}
+        ],
+        "actions": [
+          {
+            "type": "remove",
+            "fields": ["admin", "read", "write", "execute"],
+            "scale": "many"
+          },
+          {
+            "type": "insert",
+            "if": [
+              {"feature": "command", "operation": "==", "value": "PUT"},
+              {"feature": "right", "operation": "feature_str_contains_value", "value": "a"}
+            ],
+            "fields": ["admin"],
+            "scale": "many"
+          },
+          {
+            "type": "insert",
+            "if": [
+              {"feature": "command", "operation": "==", "value": "PUT"},
+              {"feature": "right", "operation": "feature_str_contains_value", "value": "r"}
+            ],
+            "fields": ["read"],
+            "scale": "many"
+          },
+          {
+            "type": "insert",
+            "if": [
+              {"feature": "command", "operation": "==", "value": "PUT"},
+              {"feature": "right", "operation": "feature_str_contains_value", "value": "w"}
+            ],
+            "fields": ["write"],
+            "scale": "many"
+          },
+          {
+            "type": "insert",
+            "if": [
+              {"feature": "command", "operation": "==", "value": "PUT"},
+              {"feature": "right", "operation": "feature_str_contains_value", "value": "x"}
+            ],
+            "fields": ["execute"],
+            "scale": "many"
+          }
+        ]
+      },
+      {
+        "type": "root",
+        "target": "permission_event",
+        "features": [
+          {"name": "command", "path": "$.command+"},
+          {"name": "user", "path": "$.User+", "omitempty": true},
+          {"name": "group", "path": "$.Group+", "omitempty": true},
+          {"name": "right", "path": "$.Right+"},
+          {"name": "kind", "path": "$.Kind+"},
+          {"name": "resource", "path": "$.Resource+"},
+          {"name": "date", "default_ref": "time.epoch_millis"}
+        ],
+        "actions": [
+          {
+            "type": "insert",
+            "fields": [""],
+            "scale": "one"
+          }
+        ]
+      }
+    ],
+
+    "deviceinstance":[
+      {
+        "type": "root",
+        "target": "deviceinstance",
+        "id_feature":"id",
+        "features": [
+          {"name": "command", "path": "$.command+", "temp":true},
+          {"name": "owner", "path": "$.owner+", "temp":true},
+          {"name": "id", "path": "$.id+"},
+          {"name": "name", "path": "$.device_instance.name+"},
+          {"name": "tag", "path": "$.device_instance.tags+"},
+          {"name": "usertag", "path": "$.device_instance.user_tags+"},
+          {"name": "devicetype", "path": "$.device_instance.device_type+"},
+          {"name": "uri", "path": "$.device_instance.uri+"},
+          {"name": "img", "path": "$.device_instance.img+"}
+        ],
+        "actions": [
+          {
+            "type": "remove_target",
+            "if": [{"feature": "command", "operation": "==", "value": "DELETE"}]
+          },
+          {
+            "type": "insert",
+            "if": [{"feature": "command", "operation": "==", "value": "PUT"}],
+            "fields": ["device"],
+            "scale": "one"
+          }
+        ],
+        "init":[
+          {
+            "target":"permission_event",
+            "where":[
+              {"target_feature": "resource", "operation":"==", "event_feature":"id"},
+              {"target_feature": "kind", "operation":"==", "value":"deviceinstance"}
+            ],
+            "sorting": {"by": "date", "asc": true, "limit": 1000},
+            "default": [
+              {
+                "user":{"feature":"owner"}, "right":{"value":"rwxa"}, "command":{"value":"PUT"}
+              },
+              {
+                "group":{"value":"admin"}, "right":{"value":"rwxa"}, "command":{"value":"PUT"}
+              }
+            ],
+            "transform": [
+              {"name": "command", "path": "$.command+", "temp":true},
+              {"name": "user", "path": "$.user+", "omitempty": true},
+              {"name": "group", "path": "$.group+", "omitempty": true},
+              {"name": "right", "path": "$.right+", "temp":true}
+            ],
+            "actions": [
+              {
+                "type": "remove",
+                "fields": ["admin", "read", "write", "execute"],
+                "scale": "many"
+              },
+              {
+                "type": "insert",
+                "if": [
+                  {"feature": "command", "operation": "==", "value": "PUT"},
+                  {"feature": "right", "operation": "feature_str_contains_value", "value": "a"}
+                ],
+                "fields": ["admin"],
+                "scale": "many"
+              },
+              {
+                "type": "insert",
+                "if": [
+                  {"feature": "command", "operation": "==", "value": "PUT"},
+                  {"feature": "right", "operation": "feature_str_contains_value", "value": "r"}
+                ],
+                "fields": ["read"],
+                "scale": "many"
+              },
+              {
+                "type": "insert",
+                "if": [
+                  {"feature": "command", "operation": "==", "value": "PUT"},
+                  {"feature": "right", "operation": "feature_str_contains_value", "value": "w"}
+                ],
+                "fields": ["write"],
+                "scale": "many"
+              },
+              {
+                "type": "insert",
+                "if": [
+                  {"feature": "command", "operation": "==", "value": "PUT"},
+                  {"feature": "right", "operation": "feature_str_contains_value", "value": "x"}
+                ],
+                "fields": ["execute"],
+                "scale": "many"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+
+  "queries": {
+    "deviceinstance":{
+      "r": {
+        "selection":{
+          "or": [
+            {"condition": {"feature": "read.user", "operation": "==", "ref": "jwt.user"}},
+            {"condition": {"feature": "read.group", "operation": "any_value_in_feature", "ref": "jwt.groups"}}
+          ]
+        },
+        "projection": ["device"]
+      },
+      "w": {
+        "selection":{
+          "or": [
+            {"condition": {"feature": "write.user", "operation": "==", "ref": "jwt.user"}},
+            {"condition": {"feature": "write.group", "operation": "any_value_in_feature", "ref": "jwt.groups"}}
+          ]
+        },
+        "projection": ["device"]
+      },
+      "x": {
+        "selection":{
+          "or": [
+            {"condition": {"feature": "execute.user", "operation": "==", "ref": "jwt.user"}},
+            {"condition": {"feature": "execute.group", "operation": "any_value_in_feature", "ref": "jwt.groups"}}
+          ]
+        },
+        "projection": ["device"]
+      },
+      "a": {
+        "selection":{
+          "or": [
+            {"condition": {"feature": "admin.user", "operation": "==", "ref": "jwt.user"}},
+            {"condition": {"feature": "admin.group", "operation": "any_value_in_feature", "ref": "jwt.groups"}}
+          ]
+        },
+        "projection": ["device"]
+      },
+      "rw": {
+        "selection":{
+          "and": [
+            {
+              "or": [
+                {"condition": {"feature": "read.user", "operation": "==", "ref": "jwt.user"}},
+                {"condition": {"feature": "read.group", "operation": "any_value_in_feature", "ref": "jwt.groups"}}
+              ]
+            },
+            {
+              "or": [
+                {"condition": {"feature": "write.user", "operation": "==", "ref": "jwt.user"}},
+                {"condition": {"feature": "write.group", "operation": "any_value_in_feature", "ref": "jwt.groups"}}
+              ]
+            }
+          ]
+        },
+        "projection": ["device"]
+      }
+    }
+  },
+
+  "elastic_mapping": {
+    "deviceinstance":{
+      "device":{
+        "properties": {
+          "name":         {"type": "keyword", "copy_to": "feature_search"},
+          "description":  {"type": "text",    "copy_to": "feature_search"},
+          "usertag":      {"type": "keyword", "copy_to": "feature_search"},
+          "tag":          {"type": "keyword", "copy_to": "feature_search"},
+          "devicetype":   {"type": "keyword"},
+          "uri":          {"type": "keyword"},
+          "img":          {"type": "keyword"}
+        }
+      },
+      "read":{
+        "properties": {
+          "user":         {"type": "keyword", "index": "not_analyzed"},
+          "group":        {"type": "keyword", "index": "not_analyzed"}
+        }
+      },
+      "write":{
+        "properties": {
+          "user":         {"type": "keyword", "index": "not_analyzed"},
+          "group":        {"type": "keyword", "index": "not_analyzed"}
+        }
+      },
+      "admin":{
+        "properties": {
+          "user":         {"type": "keyword", "index": "not_analyzed"},
+          "group":        {"type": "keyword", "index": "not_analyzed"}
+        }
+      },
+      "execute":{
+        "properties": {
+          "user":         {"type": "keyword", "index": "not_analyzed"},
+          "group":        {"type": "keyword", "index": "not_analyzed"}
+        }
+      }
+    },
+    "permission_event": {
+      "resource": {"type": "keyword"},
+      "user":     {"type": "keyword"},
+      "group":    {"type": "keyword"},
+      "kind":     {"type": "keyword"},
+      "command":  {"type": "keyword"}
+    }
+  }
+}

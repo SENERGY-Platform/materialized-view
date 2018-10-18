@@ -1,0 +1,137 @@
+{
+  "events": {
+    "deviceinstance":[
+      {
+        "type": "root",
+        "target": "device_gw",
+        "id_feature":"id",
+        "features": [
+          {"name": "command", "path": "$.command+", "temp":true},
+          {"name": "id", "path": "$.id+"},
+          {"name": "name", "path": "$.device_instance.name+"},
+          {"name": "tag", "path": "$.device_instance.tags+"},
+          {"name": "usertag", "path": "$.device_instance.user_tags+"},
+          {"name": "devicetype", "path": "$.device_instance.device_type+"},
+          {"name": "uri", "path": "$.device_instance.uri+"},
+          {"name": "img", "path": "$.device_instance.img+"}
+        ],
+        "actions": [
+          {
+            "type": "remove_target",
+            "if": [{"feature": "command", "operation": "==", "value": "DELETE"}]
+          },
+          {
+            "type": "insert",
+            "if": [{"feature": "command", "operation": "==", "value": "PUT"}],
+            "fields": ["device"],
+            "scale": "one"
+          }
+        ],
+        "init":[
+          {
+            "target":"gateway_event",
+            "where":[{"target_feature": "devices", "operation":"==" , "event_feature":"id"}],
+            "transform": [
+              {"name": "command", "path": "$.command+", "temp":true},
+              {"Name": "name", "Path": "$.name+"}
+            ],
+            "actions": [
+              {
+                "type": "remove",
+                "if": [{"feature": "command", "operation": "==", "value": "DELETE"}],
+                "fields": ["gw"],
+                "scale": "one"
+              },
+              {
+                "type": "insert",
+                "if": [{"feature": "command", "operation": "==", "value": "PUT"}],
+                "fields": ["gw"],
+                "scale": "one"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "gateway":[
+      {
+        "type": "child",
+        "target": "device_gw",
+        "where": [{"target_feature": "id", "operation":"any_target_in_event", "event_feature":"devices"}],
+        "features": [
+          {"name": "command", "path": "$.command+", "temp":true},
+          {"Name": "name", "Path": "$.name+"},
+          {"Name": "devices", "Path": "$.devices+", "temp":true}
+        ],
+        "actions": [
+          {
+            "type": "remove",
+            "if": [{"feature": "command", "operation": "==", "value": "DELETE"}],
+            "fields": ["gw"],
+            "scale": "one"
+          },
+          {
+            "type": "insert",
+            "if": [{"feature": "command", "operation": "==", "value": "PUT"}],
+            "fields": ["gw"],
+            "scale": "one"
+          }
+        ]
+      },
+      {
+        "type": "root",
+        "target": "gateway_event",
+        "id_feature":"id",
+        "features": [
+          {"name": "id", "path": "$.id+"},
+          {"name": "command", "path": "$.command+"},
+          {"Name": "name", "Path": "$.name+"},
+          {"Name": "devices", "Path": "$.devices+"}
+        ],
+        "actions": [
+          {
+            "type": "insert",
+            "fields": [""],
+            "scale": "one"
+          }
+        ]
+      }
+    ]
+  },
+
+  "queries": {
+    "device_gw":{
+      "endpoint": {
+        "selection": {"all": true},
+        "projection": ["*"]
+      }
+    }
+  },
+
+  "elastic_mapping": {
+    "device_gw":{
+      "device":{
+        "properties": {
+          "name":         {"type": "keyword", "copy_to": "feature_search"},
+          "description":  {"type": "text",    "copy_to": "feature_search"},
+          "usertag":      {"type": "keyword", "copy_to": "feature_search"},
+          "tag":          {"type": "keyword", "copy_to": "feature_search"},
+          "devicetype":   {"type": "keyword"},
+          "uri":          {"type": "keyword"},
+          "img":          {"type": "keyword"}
+        }
+      },
+      "gw":{
+        "properties": {
+          "name":         {"type": "keyword", "copy_to": "feature_search"}
+        }
+      }
+    },
+    "gateway_event": {
+      "name":    {"type": "keyword"},
+      "devices": {"type": "keyword"},
+      "id":      {"type": "keyword"},
+      "command": {"type": "keyword"}
+    }
+  }
+}
