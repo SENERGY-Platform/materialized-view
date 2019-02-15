@@ -216,41 +216,42 @@ func GetLimit(target string, endpoint string, query url.Values, jwt jwt_http_rou
 	}
 	return
 }
-func GetSorted(target string, endpoint string, query url.Values, jwt jwt_http_router.Jwt, limit string, offset string, orderBy string, asc bool) (result []interface{}, err error) {
+func GetSorted(target string, endpoint string, query url.Values, jwt jwt_http_router.Jwt, limit string, offset string, orderBy string, asc bool) (result []interface{}, total int64, err error) {
 	result = []interface{}{}
 	l, err := strconv.Atoi(limit)
 	if err != nil {
-		return result, err
+		return result, 0, err
 	}
 	o, err := strconv.Atoi(offset)
 	if err != nil {
-		return result, err
+		return result, 0, err
 	}
 	ctx := context.Background()
 	q := elastic.NewBoolQuery()
 	err = UseSelection(q, target, endpoint, jwt, query)
 	if err != nil {
-		return result, err
+		return result, 0, err
 	}
 	resp, err := GetClient().Search().Index(target).Type(ElasticResourceType).Query(q).Size(l).From(o).Sort(orderBy, asc).Do(ctx)
 	if err != nil {
-		return result, err
+		return result, 0, err
 	}
+	total = resp.TotalHits()
 	for _, hit := range resp.Hits.Hits {
 		entry := map[string]interface{}{}
 		err = json.Unmarshal(*hit.Source, &entry)
 		if err != nil {
-			return result, err
+			return result, 0, err
 		}
 		targetQuery, ok := Config.Queries[target]
 		if !ok {
 			log.Println("unknown target: " + target)
-			return result, errors.New("unknown target: " + target)
+			return result, 0, errors.New("unknown target: " + target)
 		}
 		endpointQuery, ok := targetQuery[endpoint]
 		if !ok {
 			log.Println("unknown endpoint: " + endpoint)
-			return result, errors.New("unknown endpoint: " + endpoint)
+			return result, 0, errors.New("unknown endpoint: " + endpoint)
 		}
 		result = append(result, endpointQuery.Projection.Use(entry))
 	}

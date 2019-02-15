@@ -136,7 +136,7 @@ func getRoutes() (router *jwt_http_router.Router) {
 		limit := ps.ByName("limit")
 		offset := ps.ByName("offset")
 		orderBy := ps.ByName("order_by")
-		result, err := GetSorted(target, endpoint, r.URL.Query(), jwt, limit, offset, orderBy, true)
+		result, _, err := GetSorted(target, endpoint, r.URL.Query(), jwt, limit, offset, orderBy, true)
 		if err != nil {
 			log.Println("ERROR: ", err)
 			http.Error(res, err.Error(), http.StatusInternalServerError)
@@ -151,13 +151,43 @@ func getRoutes() (router *jwt_http_router.Router) {
 		limit := ps.ByName("limit")
 		offset := ps.ByName("offset")
 		orderBy := ps.ByName("order_by")
-		result, err := GetSorted(target, endpoint, r.URL.Query(), jwt, limit, offset, orderBy, false)
+		result, _, err := GetSorted(target, endpoint, r.URL.Query(), jwt, limit, offset, orderBy, false)
 		if err != nil {
 			log.Println("ERROR: ", err)
 			http.Error(res, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		response.To(res).Json(result)
+	})
+
+	router.GET("/get/:target/:endpoint/:limit/:offset/:order_by/desc/withtotal", func(res http.ResponseWriter, r *http.Request, ps jwt_http_router.Params, jwt jwt_http_router.Jwt) {
+		target := ps.ByName("target")
+		endpoint := ps.ByName("endpoint")
+		limit := ps.ByName("limit")
+		offset := ps.ByName("offset")
+		orderBy := ps.ByName("order_by")
+		result, total, err := GetSorted(target, endpoint, r.URL.Query(), jwt, limit, offset, orderBy, false)
+		if err != nil {
+			log.Println("ERROR: ", err)
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		response.To(res).Json(map[string]interface{}{"total": total, "result": result})
+	})
+
+	router.GET("/get/:target/:endpoint/:limit/:offset/:order_by/asc/withtotal", func(res http.ResponseWriter, r *http.Request, ps jwt_http_router.Params, jwt jwt_http_router.Jwt) {
+		target := ps.ByName("target")
+		endpoint := ps.ByName("endpoint")
+		limit := ps.ByName("limit")
+		offset := ps.ByName("offset")
+		orderBy := ps.ByName("order_by")
+		result, total, err := GetSorted(target, endpoint, r.URL.Query(), jwt, limit, offset, orderBy, true)
+		if err != nil {
+			log.Println("ERROR: ", err)
+			http.Error(res, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		response.To(res).Json(map[string]interface{}{"total": total, "result": result})
 	})
 
 	router.GET("/select/field/:target/:endpoint/:field/:value", func(res http.ResponseWriter, r *http.Request, ps jwt_http_router.Params, jwt jwt_http_router.Jwt) {
