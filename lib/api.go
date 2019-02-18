@@ -120,7 +120,7 @@ func getRoutes() (router *jwt_http_router.Router) {
 		response.To(res).Json(map[string]interface{}{"total": total, "result": result})
 	})
 
-	router.GET("/search/:target/:searchtext/:endpoint/:limit/:offset/:order_by/desc", func(res http.ResponseWriter, r *http.Request, ps jwt_http_router.Params, jwt jwt_http_router.Jwt) {
+	router.GET("/search/:target/:searchtext/:endpoint/:limit/:offset/:order_by/desc/withtotal", func(res http.ResponseWriter, r *http.Request, ps jwt_http_router.Params, jwt jwt_http_router.Jwt) {
 		target := ps.ByName("target")
 		searchtext := ps.ByName("searchtext")
 		endpoint := ps.ByName("endpoint")
