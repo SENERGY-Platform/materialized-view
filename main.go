@@ -24,7 +24,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/SmartEnergyPlatform/materialized-view/lib"
+	"github.com/SENERGY-Platform/materialized-view/lib"
 )
 
 func main() {
