@@ -1014,6 +1014,6 @@ func test_sendEvent(topic string, event interface{}) error {
 		log.Println("ERROR: event marshaling:", err)
 		return err
 	}
-	log.Println("DEBUG: send amqp event:", topic, string(payload))
+	log.Println("DEBUG: send event:", topic, string(payload))
 	return conn.Publish(topic, uuid.NewV4().String(), payload)
 }

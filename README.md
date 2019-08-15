@@ -1,9 +1,9 @@
-Provides HTTP-API for resources that are received as amqp-events and are modified and merged according to the configuration. Resources will be saved in elastic search.
+Provides HTTP-API for resources that are received as events and are modified and merged according to the configuration. Resources will be saved in elastic search.
 Can be used to create materialized views in a cqrs environment.
 
 
 # Config - Events ('events')
-The 'events' field maps event topics to a list of action-groups. If the matviev instance receives an event from the amqp event-broker, each corresponding action-group will be called.
+The 'events' field maps event topics to a list of action-groups. If the matviev instance receives an event from the event-broker, each corresponding action-group will be called.
 
 ## Action-Group
 A Action-Group conditionally transforms and saves a event to specified elasticsearch documents.

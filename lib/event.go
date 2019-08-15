@@ -26,7 +26,7 @@ var conn kafka.Interface
 func InitEventHandling() (err error) {
 	conn, err = kafka.Init(Config.ZookeeperUrl, Config.ConsumerGroup, Config.Debug)
 	if err != nil {
-		log.Fatal("ERROR: while initializing amqp connection ", err)
+		log.Fatal("ERROR: while initializing event connection ", err)
 		return
 	}
 	for topic, groupes := range Config.Events {
