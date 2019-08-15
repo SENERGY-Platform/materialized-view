@@ -17,25 +17,19 @@
 package lib
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
-	"log"
 	"time"
 
 	"testing"
-
-	"github.com/olivere/elastic"
-	"github.com/ory/dockertest"
 )
 
 var testConfStrTargetWhereSorted = `{
   "server_port":		          "8080",
   "log_level":		              "CALL",
 
-  "amqp_url": "amqp://guest:guest@rabbitmq:5672/",
-  "amqp_consumer_name": "matview_1",
-  "AmqpReconnectTimeout": 10,
+    "zookeeper_url": "zk",
+  "consumer_group": "matview_1",
+  "debug": false,
 
   "force_user": "false",
   "force_auth": "false",
@@ -75,64 +69,7 @@ var testConfStrTargetWhereSorted = `{
 `
 
 func initTargetWherSortedTestContainer() (purge func(), err error) {
-	config := ConfigStruct{}
-	err = json.Unmarshal([]byte(testConfStrTargetWhereSorted), &config)
-	if err != nil {
-		log.Fatalf("Could not unmarshal config: %s", err)
-	}
-	Config = &config
-	Config.ServerPort = testGetFrePort()
-	pool, err := dockertest.NewPool("")
-	if err != nil {
-		log.Fatalf("Could not connect to docker: %s", err)
-	}
-	dockerrabbitmq, err := pool.Run("rabbitmq", "3-management", []string{})
-	if err != nil {
-		log.Fatalf("Could not start dockerrabbitmq: %s", err)
-	}
-	dockeresultelastic, err := pool.Run("elasticsearch", "latest", []string{})
-	if err != nil {
-		log.Fatalf("Could not start dockeresultelastic: %s", err)
-	}
-	purge = func() {
-		conn.Close()
-		pool.Purge(dockeresultelastic)
-		pool.Purge(dockerrabbitmq)
-	}
-
-	time.Sleep(2 * time.Second)
-
-	Config.ElasticUrl = "http://localhost:" + dockeresultelastic.GetPort("9200/tcp")
-	Config.AmqpUrl = "amqp://guest:guest@localhost:" + dockerrabbitmq.GetPort("5672/tcp") + "/"
-
-	if err := pool.Retry(func() error {
-		localclient, err := elastic.NewClient(elastic.SetURL(Config.ElasticUrl), elastic.SetRetrier(newRetrier()))
-		if err != nil {
-			return err
-		}
-		ping, _, err := elastic.NewPingService(localclient).Do(context.Background())
-		if err != nil {
-			return err
-		}
-		if ping.Version.Number == "" {
-			return errors.New("empty ping result")
-		}
-		GetClient()
-		client = createClient()
-		log.Println(Config.ElasticUrl, client)
-		return nil
-	}); err != nil {
-		purge()
-		log.Fatalf("Could not connect to docker: %s", err)
-	}
-
-	if err := pool.Retry(func() error {
-		return InitEventHandling()
-	}); err != nil {
-		purge()
-		log.Fatalf("Could not connect to docker: %s", err)
-	}
-	return
+	return initTestContainer(testConfStrTargetWhereSorted)
 }
 
 func testHelperGetTargetsWhereSorted(t *testing.T, sortingConf string, expectedIds []string) {
@@ -168,21 +105,21 @@ func TestGetTargetsWhereSorted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = sendEvent("test", map[string]interface{}{
+	err = test_sendEvent("test", map[string]interface{}{
 		"id": "1",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second * 2)
-	err = sendEvent("test", map[string]interface{}{
+	err = test_sendEvent("test", map[string]interface{}{
 		"id": "2",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(time.Second * 2)
-	err = sendEvent("test", map[string]interface{}{
+	err = test_sendEvent("test", map[string]interface{}{
 		"id": "3",
 	})
 	if err != nil {

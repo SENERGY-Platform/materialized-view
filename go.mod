@@ -5,7 +5,6 @@ require (
 	github.com/JumboInteractiveLimited/jsonpath v0.0.0-20180321012328-6fcdcc9066b5
 	github.com/Microsoft/go-winio v0.4.7
 	github.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5
-	github.com/SmartEnergyPlatform/amqp-wrapper-lib v0.0.0-20181018071408-32e07d9d89bb
 	github.com/SmartEnergyPlatform/jwt-http-router v0.0.0-20181018071703-2fca7308e21f
 	github.com/SmartEnergyPlatform/util v0.0.0-20181018070938-b26ca656886c
 	github.com/bouk/monkey v1.0.0
@@ -15,16 +14,18 @@ require (
 	github.com/docker/go-connections v0.3.0
 	github.com/docker/go-units v0.3.3
 	github.com/mailru/easyjson v0.0.0-20180531095741-9825584555aa
-	github.com/olivere/elastic v6.1.23+incompatible
+	github.com/olivere/elastic v6.2.22+incompatible
 	github.com/opencontainers/go-digest v1.0.0-rc1
 	github.com/opencontainers/image-spec v1.0.1
 	github.com/opencontainers/runc v0.1.1
-	github.com/ory/dockertest v3.3.1+incompatible
+	github.com/ory/dockertest v3.3.4+incompatible
 	github.com/pkg/errors v0.8.0
+	github.com/samuel/go-zookeeper v0.0.0-20190810000440-0ceca61e4d75 // indirect
 	github.com/satori/go.uuid v1.2.0
+	github.com/segmentio/kafka-go v0.3.2
 	github.com/sirupsen/logrus v1.0.5
-	github.com/streadway/amqp v0.0.0-20180528204448-e5adc2ada8b8
-	golang.org/x/crypto v0.0.0-20180617042118-027cca12c2d6
-	golang.org/x/net v0.0.0-20180611182652-db08ff08e862
-	golang.org/x/sys v0.0.0-20180616030259-6c888cc515d3
+	github.com/wvanbergen/kazoo-go v0.0.0-20180202103751-f72d8611297a
+	golang.org/x/crypto v0.0.0-20190506204251-e1dfcc566284
+	golang.org/x/net v0.0.0-20190404232315-eb5bcb51f2a3
+	golang.org/x/sys v0.0.0-20190412213103-97732733099d
 )

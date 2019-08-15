@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"runtime/debug"
 
 	"sync"
 
@@ -45,12 +46,14 @@ func createClient() (result *elastic.Client) {
 	ctx := context.Background()
 	result, err := elastic.NewClient(elastic.SetURL(Config.ElasticUrl), elastic.SetRetrier(newRetrier()))
 	if err != nil {
-		panic(err)
+		debug.PrintStack()
+		log.Fatal(err, Config.ElasticUrl)
 	}
 	for kind := range Config.ElasticMapping {
 		err = createIndex(kind, result, ctx)
 		if err != nil {
-			panic(err)
+			debug.PrintStack()
+			log.Fatal(err)
 		}
 	}
 	return

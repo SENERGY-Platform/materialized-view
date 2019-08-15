@@ -19,26 +19,32 @@ package lib
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"github.com/ory/dockertest/docker"
+	uuid "github.com/satori/go.uuid"
+	"github.com/segmentio/kafka-go"
+	"github.com/wvanbergen/kazoo-go"
 	"log"
 	"net"
+	"net/http"
 	"reflect"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/SmartEnergyPlatform/util/http/request"
 	"github.com/olivere/elastic"
 	"github.com/ory/dockertest"
-	"github.com/SmartEnergyPlatform/util/http/request"
 )
 
 var testConfStr = `{
   "server_port":		          "8080",
   "log_level":		              "CALL",
 
-  "amqp_url": "amqp://guest:guest@rabbitmq:5672/",
-  "amqp_consumer_name": "matview_1",
-  "AmqpReconnectTimeout": 10,
+    "zookeeper_url": "zk",
+  "consumer_group": "matview_1",
+  "debug": false,
 
   "force_user": "false",
   "force_auth": "false",
@@ -298,9 +304,9 @@ func testGetFrePort() string {
 	return parts[len(parts)-1]
 }
 
-func initIntegrationTestContainer() (purge func(), err error) {
+func initTestContainer(confStr string) (purge func(), err error) {
 	config := ConfigStruct{}
-	err = json.Unmarshal([]byte(testConfStr), &config)
+	err = json.Unmarshal([]byte(confStr), &config)
 	if err != nil {
 		log.Fatalf("Could not unmarshal config: %s", err)
 	}
@@ -308,56 +314,185 @@ func initIntegrationTestContainer() (purge func(), err error) {
 	Config.ServerPort = testGetFrePort()
 	pool, err := dockertest.NewPool("")
 	if err != nil {
-		log.Fatalf("Could not connect to docker: %s", err)
+		log.Fatalf("Could not connect to dockertest pool: %s", err)
 	}
-	dockerrabbitmq, err := pool.Run("rabbitmq", "3-management", []string{})
-	if err != nil {
-		log.Fatalf("Could not start dockerrabbitmq: %s", err)
-	}
-	dockeresultelastic, err := pool.Run("elasticsearch", "latest", []string{})
-	if err != nil {
-		log.Fatalf("Could not start dockeresultelastic: %s", err)
-	}
+
+	elasticCloser, _, elasticIp, err := Elasticsearch(pool)
+	Config.ElasticUrl = "http://" + elasticIp + ":9200"
 	purge = func() {
-		conn.Close()
-		pool.Purge(dockeresultelastic)
-		pool.Purge(dockerrabbitmq)
+		if conn != nil {
+			conn.Close()
+		}
+		elasticCloser()
+	}
+	if err != nil {
+		purge()
+		debug.PrintStack()
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := recover(); err != nil {
+			purge()
+			debug.PrintStack()
+			log.Fatal(err)
+		}
+	}()
+	client = createClient()
+
+	closeZk, _, zkIp, err := ZookeeperContainer(pool)
+	purge = func() {
+		if conn != nil {
+			conn.Close()
+		}
+		elasticCloser()
+		closeZk()
+	}
+	if err != nil {
+		purge()
+		debug.PrintStack()
+		log.Fatal(err)
+	}
+	zookeeperUrl := zkIp + ":2181"
+
+	//kafka
+	closeKafka, err := KafkaContainer(pool, zookeeperUrl)
+	purge = func() {
+		if conn != nil {
+			conn.Close()
+		}
+		elasticCloser()
+		closeZk()
+		closeKafka()
+	}
+	if err != nil {
+		purge()
+		debug.PrintStack()
+		log.Fatal(err)
 	}
 
 	time.Sleep(2 * time.Second)
 
-	Config.ElasticUrl = "http://localhost:" + dockeresultelastic.GetPort("9200/tcp")
-	Config.AmqpUrl = "amqp://guest:guest@localhost:" + dockerrabbitmq.GetPort("5672/tcp") + "/"
+	Config.ZookeeperUrl = zkIp + ":2181"
 
-	if err := pool.Retry(func() error {
-		localclient, err := elastic.NewClient(elastic.SetURL(Config.ElasticUrl), elastic.SetRetrier(newRetrier()))
-		if err != nil {
-			return err
-		}
-		ping, _, err := elastic.NewPingService(localclient).Do(context.Background())
-		if err != nil {
-			return err
-		}
-		if ping.Version.Number == "" {
-			return errors.New("empty ping result")
-		}
-		GetClient()
-		client = createClient()
-		log.Println(Config.ElasticUrl, client)
-		return nil
-	}); err != nil {
+	err = InitEventHandling()
+	if err != nil {
 		purge()
-		log.Fatalf("Could not connect to docker: %s", err)
-	}
-
-	if err := pool.Retry(func() error {
-		return InitEventHandling()
-	}); err != nil {
-		purge()
-		log.Fatalf("Could not connect to docker: %s", err)
+		debug.PrintStack()
+		log.Fatal(err)
 	}
 	go StartApi()
 	return
+}
+
+func Elasticsearch(pool *dockertest.Pool) (closer func(), hostPort string, ipAddress string, err error) {
+	log.Println("start elasticsearch")
+	repo, err := pool.Run("docker.elastic.co/elasticsearch/elasticsearch", "6.4.3", []string{"discovery.type=single-node"})
+	if err != nil {
+		return func() {}, "", "", err
+	}
+	hostPort = repo.GetPort("9200/tcp")
+	err = pool.Retry(func() error {
+		log.Println("try elastic connection...")
+		_, err := http.Get("http://" + repo.Container.NetworkSettings.IPAddress + ":9200/_cluster/health")
+		if err != nil {
+			log.Println(err)
+		}
+		return err
+	})
+	return func() { repo.Close() }, hostPort, repo.Container.NetworkSettings.IPAddress, err
+}
+
+func KafkaContainer(pool *dockertest.Pool, zookeeperUrl string) (closer func(), err error) {
+	kafkaport, err := getFreePort()
+	if err != nil {
+		log.Fatalf("Could not find new port: %s", err)
+	}
+	networks, _ := pool.Client.ListNetworks()
+	hostIp := ""
+	for _, network := range networks {
+		if network.Name == "bridge" {
+			hostIp = network.IPAM.Config[0].Gateway
+		}
+	}
+	log.Println("host ip: ", hostIp)
+	env := []string{
+		"ALLOW_PLAINTEXT_LISTENER=yes",
+		"KAFKA_LISTENERS=OUTSIDE://:9092",
+		"KAFKA_ADVERTISED_LISTENERS=OUTSIDE://" + hostIp + ":" + strconv.Itoa(kafkaport),
+		"KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=OUTSIDE:PLAINTEXT",
+		"KAFKA_INTER_BROKER_LISTENER_NAME=OUTSIDE",
+		"KAFKA_ZOOKEEPER_CONNECT=" + zookeeperUrl,
+	}
+	log.Println("start kafka with env ", env)
+	kafkaContainer, err := pool.RunWithOptions(&dockertest.RunOptions{Repository: "bitnami/kafka", Tag: "latest", Env: env, PortBindings: map[docker.Port][]docker.PortBinding{
+		"9092/tcp": {{HostIP: "", HostPort: strconv.Itoa(kafkaport)}},
+	}})
+	if err != nil {
+		return func() {}, err
+	}
+	err = pool.Retry(func() error {
+		log.Println("try kafka connection...")
+		conn, err := kafka.Dial("tcp", hostIp+":"+strconv.Itoa(kafkaport))
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+		defer func() {
+			if conn != nil {
+				conn.Close()
+			}
+		}()
+		return nil
+	})
+	return func() { kafkaContainer.Close() }, err
+}
+
+func ZookeeperContainer(pool *dockertest.Pool) (closer func(), hostPort string, ipAddress string, err error) {
+	zkport, err := getFreePort()
+	if err != nil {
+		log.Fatalf("Could not find new port: %s", err)
+	}
+	env := []string{}
+	log.Println("start zookeeper on ", zkport)
+	zkContainer, err := pool.RunWithOptions(&dockertest.RunOptions{Repository: "wurstmeister/zookeeper", Tag: "latest", Env: env, PortBindings: map[docker.Port][]docker.PortBinding{
+		"2181/tcp": {{HostIP: "", HostPort: strconv.Itoa(zkport)}},
+	}})
+	if err != nil {
+		return func() {}, "", "", err
+	}
+	hostPort = strconv.Itoa(zkport)
+	err = pool.Retry(func() error {
+		log.Println("try zk connection...")
+		zookeeper := kazoo.NewConfig()
+		zk, chroot := kazoo.ParseConnectionString(zkContainer.Container.NetworkSettings.IPAddress)
+		zookeeper.Chroot = chroot
+		kz, err := kazoo.NewKazoo(zk, zookeeper)
+		if err != nil {
+			log.Println("kazoo", err)
+			return err
+		}
+		_, err = kz.Brokers()
+		if err != nil && strings.TrimSpace(err.Error()) != strings.TrimSpace("zk: node does not exist") {
+			log.Println("brokers", err)
+			return err
+		}
+		return nil
+	})
+	return func() { zkContainer.Close() }, hostPort, zkContainer.Container.NetworkSettings.IPAddress, err
+}
+
+func getFreePort() (int, error) {
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
+	if err != nil {
+		return 0, err
+	}
+
+	listener, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+	defer listener.Close()
+	return listener.Addr().(*net.TCPAddr).Port, nil
 }
 
 func testHelperGetAll(index string) (all []map[string]interface{}, err error) {
@@ -407,12 +542,12 @@ func testHelperCheckHttpPost(t *testing.T, path string, body interface{}, expect
 }
 
 func TestEventsAndRest(t *testing.T) {
-	purge, err := initIntegrationTestContainer()
+	purge, err := initTestContainer(testConfStr)
 	defer purge()
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = sendEvent("permission", map[string]interface{}{
+	err = test_sendEvent("permission", map[string]interface{}{
 		"command":  "PUT",
 		"User":     "user1",
 		"Right":    "rw",
@@ -422,7 +557,7 @@ func TestEventsAndRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(time.Second * 2)
+	time.Sleep(time.Second * 20)
 
 	all, err := testHelperGetAll("permission_event")
 	if err != nil {
@@ -446,7 +581,7 @@ func TestEventsAndRest(t *testing.T) {
 		t.Fatal()
 	}
 
-	err = sendEvent("deviceinstance", map[string]interface{}{
+	err = test_sendEvent("deviceinstance", map[string]interface{}{
 		"command":         "PUT",
 		"id":              "device1",
 		"device_instance": map[string]string{"name": "device_name"},
@@ -457,7 +592,7 @@ func TestEventsAndRest(t *testing.T) {
 	}
 	time.Sleep(time.Second * 2)
 
-	err = sendEvent("deviceinstance", map[string]interface{}{
+	err = test_sendEvent("deviceinstance", map[string]interface{}{
 		"command": "DELETE",
 		"id":      "UNKNOWN",
 	})
@@ -488,7 +623,7 @@ func TestEventsAndRest(t *testing.T) {
 		t.Fatal("\ngot:\n", all[0], "\nwant:\n", expected)
 	}
 
-	err = sendEvent("permission", map[string]interface{}{
+	err = test_sendEvent("permission", map[string]interface{}{
 		"command":  "PUT",
 		"User":     "user2",
 		"Right":    "rx",
@@ -521,7 +656,7 @@ func TestEventsAndRest(t *testing.T) {
 		t.Fatal("\ngot:\n", all[0], "\nwant:\n", expected)
 	}
 
-	err = sendEvent("permission", map[string]interface{}{
+	err = test_sendEvent("permission", map[string]interface{}{
 		"command":  "DELETE",
 		"User":     "user2",
 		"Kind":     "deviceinstance",
@@ -553,7 +688,7 @@ func TestEventsAndRest(t *testing.T) {
 		t.Fatal("\ngot:\n", all[0], "\nwant:\n", expected)
 	}
 
-	err = sendEvent("deviceinstance", map[string]interface{}{
+	err = test_sendEvent("deviceinstance", map[string]interface{}{
 		"command":         "PUT",
 		"id":              "device2",
 		"device_instance": map[string]string{"name": "device_name_2"},
@@ -591,7 +726,7 @@ func TestEventsAndRest(t *testing.T) {
 		t.Fatal("\ngot:\n", all[0], "\nwant:\n", expected2)
 	}
 
-	err = sendEvent("deviceinstance", map[string]interface{}{
+	err = test_sendEvent("deviceinstance", map[string]interface{}{
 		"command": "DELETE",
 		"id":      "device2",
 	})
@@ -611,7 +746,7 @@ func TestEventsAndRest(t *testing.T) {
 		t.Fatal("\ngot:\n", all[0], "\nwant:\n", expected)
 	}
 
-	err = sendEvent("deviceinstance", map[string]interface{}{
+	err = test_sendEvent("deviceinstance", map[string]interface{}{
 		"command":         "PUT",
 		"id":              "device3",
 		"device_instance": map[string]string{"name": "device_name_3"},
@@ -620,7 +755,7 @@ func TestEventsAndRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = sendEvent("deviceinstance", map[string]interface{}{
+	err = test_sendEvent("deviceinstance", map[string]interface{}{
 		"command":         "PUT",
 		"id":              "device4",
 		"device_instance": map[string]string{"name": "device_name_4"},
@@ -733,7 +868,7 @@ func TestEventsAndRest(t *testing.T) {
 
 	testHelperCheckHttpGet(t, "/get/deviceinstance/r/1/0/device.name/desc?user=foo", []interface{}{})
 
-	err = sendEvent("deviceinstance", map[string]interface{}{
+	err = test_sendEvent("deviceinstance", map[string]interface{}{
 		"command":         "PUT",
 		"id":              "device5",
 		"device_instance": map[string]string{"name": "somename"},
@@ -742,7 +877,7 @@ func TestEventsAndRest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = sendEvent("deviceinstance", map[string]interface{}{
+	err = test_sendEvent("deviceinstance", map[string]interface{}{
 		"command":         "PUT",
 		"id":              "device6",
 		"device_instance": map[string]string{"name": "somename"},
@@ -871,4 +1006,14 @@ func TestEventsAndRest(t *testing.T) {
 			},
 		},
 	})
+}
+
+func test_sendEvent(topic string, event interface{}) error {
+	payload, err := json.Marshal(event)
+	if err != nil {
+		log.Println("ERROR: event marshaling:", err)
+		return err
+	}
+	log.Println("DEBUG: send amqp event:", topic, string(payload))
+	return conn.Publish(topic, uuid.NewV4().String(), payload)
 }

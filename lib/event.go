@@ -17,28 +17,25 @@
 package lib
 
 import (
-	"encoding/json"
+	"github.com/SENERGY-Platform/materialized-view/lib/kafka"
 	"log"
-
-	"github.com/SmartEnergyPlatform/amqp-wrapper-lib"
 )
 
-var conn *amqp_wrapper_lib.Connection
+var conn kafka.Interface
 
 func InitEventHandling() (err error) {
-	conn, err = amqp_wrapper_lib.Init(Config.AmqpUrl, Config.Events.GetTopicList(), Config.AmqpReconnectTimeout)
+	conn, err = kafka.Init(Config.ZookeeperUrl, Config.ConsumerGroup, Config.Debug)
 	if err != nil {
-		log.Fatal("ERROR: while initializing amqp connection ", err, "CONFIG: ", Config.AmqpUrl, Config.Events.GetTopicList(), Config.AmqpReconnectTimeout)
+		log.Fatal("ERROR: while initializing amqp connection ", err)
 		return
 	}
-	conn.SetMessageLogging(Config.AmqpLogging == "true")
 	for topic, groupes := range Config.Events {
 		handler, err := createHandler(groupes)
 		if err != nil {
 			log.Fatal("ERROR: while creating topic handler", topic, err)
 			return err
 		}
-		err = conn.Consume(Config.AmqpConsumerName+"_"+topic, topic, handler)
+		err = conn.Consume(topic, handler)
 		if err != nil {
 			log.Fatal("ERROR: while initializing consumer", topic, err)
 			return err
@@ -47,8 +44,8 @@ func InitEventHandling() (err error) {
 	return
 }
 
-func createHandler(groupes []EventActionGroup) (handler amqp_wrapper_lib.ConsumerFunc, err error) {
-	groupHandlers := []amqp_wrapper_lib.ConsumerFunc{}
+func createHandler(groupes []EventActionGroup) (handler func(delivery []byte) error, err error) {
+	groupHandlers := []func(delivery []byte) error{}
 	for _, group := range groupes {
 		groupHandler, err := CreateGroupHandler(group)
 		if err != nil {
@@ -57,6 +54,7 @@ func createHandler(groupes []EventActionGroup) (handler amqp_wrapper_lib.Consume
 		groupHandlers = append(groupHandlers, groupHandler)
 	}
 	return func(delivery []byte) error {
+		log.Println("DEBUG: consume", string(delivery))
 		for _, handler := range groupHandlers {
 			if err := handler(delivery); err != nil {
 				return err
@@ -64,14 +62,4 @@ func createHandler(groupes []EventActionGroup) (handler amqp_wrapper_lib.Consume
 		}
 		return nil
 	}, err
-}
-
-func sendEvent(topic string, event interface{}) error {
-	payload, err := json.Marshal(event)
-	if err != nil {
-		log.Println("ERROR: event marshaling:", err)
-		return err
-	}
-	log.Println("DEBUG: send amqp event: ", topic, string(payload))
-	return conn.Publish(topic, payload)
 }

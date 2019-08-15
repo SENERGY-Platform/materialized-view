@@ -18,8 +18,6 @@ package lib
 
 import (
 	"log"
-
-	"github.com/SmartEnergyPlatform/amqp-wrapper-lib"
 )
 
 type GroupType string
@@ -49,7 +47,7 @@ type InitActionGroup struct {
 	Actions   Actions         `json:"actions"`
 }
 
-func CreateGroupHandler(group EventActionGroup) (handler amqp_wrapper_lib.ConsumerFunc, err error) {
+func CreateGroupHandler(group EventActionGroup) (handler func(delivery []byte) error, err error) {
 	return func(delivery []byte) error {
 		temp, perma, err := MsgToFeatures(group.Features, delivery)
 		if err != nil {

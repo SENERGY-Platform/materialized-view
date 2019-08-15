@@ -36,11 +36,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	time.Sleep(time.Duration(lib.Config.AmqpReconnectTimeout) * time.Second)
+	time.Sleep(10 * time.Second)
 	if lib.Config.DbInitOnly == "true" {
 		lib.GetClient()
 	} else {
-		lib.InitEventHandling()
+		err = lib.InitEventHandling()
+		if err != nil {
+			log.Fatal(err)
+		}
 		go lib.StartApi()
 
 		shutdown := make(chan os.Signal, 1)

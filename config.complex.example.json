@@ -2,9 +2,9 @@
   "server_port":		          "8080",
   "log_level":		              "CALL",
 
-  "amqp_url": "amqp://user:pw@rabbitmq:5672/",
-  "amqp_consumer_name": "matview_1",
-  "AmqpReconnectTimeout": 10,
+  "zookeeper_url": "zk",
+  "consumer_group": "matview_1",
+  "debug": false,
 
   "force_user": "true",
   "force_auth": "true",

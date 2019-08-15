@@ -18,8 +18,8 @@ package lib
 
 import (
 	"context"
-	"errors"
 	"log"
+	"runtime/debug"
 
 	"testing"
 
@@ -31,18 +31,18 @@ import (
 
 	"reflect"
 
+	"github.com/SmartEnergyPlatform/jwt-http-router"
 	"github.com/olivere/elastic"
 	"github.com/ory/dockertest"
-	"github.com/SmartEnergyPlatform/jwt-http-router"
 )
 
 var testDefaultConfig = `{
 	"server_port":		          "8080",
 	"log_level":		              "CALL",
 
-	"amqp_url": "amqp://guest:guest@rabbitmq:5672/",
-	"amqp_consumer_name": "matview_1",
-	"AmqpReconnectTimeout": 10,
+	  "zookeeper_url": "zk",
+  "consumer_group": "matview_1",
+  "debug": false,
 
 	"force_user": "true",
 	"force_auth": "true",
@@ -71,40 +71,27 @@ func initElasticSelectionTest() (elasticClient *elastic.Client, purge func(), er
 	if err != nil {
 		log.Fatalf("Could not connect to docker: %s", err)
 	}
-	dockeresultelastic, err := pool.Run("elasticsearch", "latest", []string{})
-	purge = func() {
-		pool.Purge(dockeresultelastic)
-	}
-	if err != nil {
-		log.Fatalf("Could not start dockeresultelastic: %s", err)
-	}
 	config := ConfigStruct{}
 	err = json.Unmarshal([]byte(testDefaultConfig), &config)
 	if err != nil {
 		log.Fatalf("Could not unmarshal config: %s", err)
 	}
 	Config = &config
-	Config.ElasticUrl = "http://localhost:" + dockeresultelastic.GetPort("9200/tcp")
 
-	if err := pool.Retry(func() error {
-		localclient, err := elastic.NewClient(elastic.SetURL(Config.ElasticUrl), elastic.SetRetrier(newRetrier()))
-		if err != nil {
-			return err
+	elasticCloser, _, elasticIp, err := Elasticsearch(pool)
+	Config.ElasticUrl = "http://" + elasticIp + ":9200"
+	elasticClient = createClient()
+	client = elasticClient
+	purge = func() {
+		if conn != nil {
+			conn.Close()
 		}
-		ping, _, err := elastic.NewPingService(localclient).Do(context.Background())
-		if err != nil {
-			return err
-		}
-		if ping.Version.Number == "" {
-			return errors.New("empty ping result")
-		}
-		GetClient()
-		elasticClient = createClient()
-		client = elasticClient
-		log.Println(Config.ElasticUrl, client)
-		return nil
-	}); err != nil {
-		log.Fatalf("Could not connect to docker: %s", err)
+		elasticCloser()
+	}
+	if err != nil {
+		purge()
+		debug.PrintStack()
+		log.Fatal(err)
 	}
 	return
 }
@@ -152,7 +139,7 @@ func TestUseSelection(t *testing.T) {
 	client, purge, err := initElasticSelectionTest()
 	defer purge()
 	if err != nil {
-		t.Fatal()
+		t.Fatal(err)
 	}
 	element := `{
 		"searchable": 	"foo",
@@ -168,7 +155,7 @@ func TestUseSelection(t *testing.T) {
 	_, err = client.Index().Index("test").Type(ElasticResourceType).BodyString(element).Do(context.Background())
 	time.Sleep(time.Second * 2)
 	if err != nil {
-		t.Fatal()
+		t.Fatal(err)
 	}
 
 	queriesStr := `{

@@ -18,8 +18,8 @@ package lib
 
 import (
 	"context"
-	"errors"
 	"log"
+	"runtime/debug"
 
 	"testing"
 
@@ -38,40 +38,27 @@ func initElasticWhereTest() (elasticClient *elastic.Client, purge func(), err er
 	if err != nil {
 		log.Fatalf("Could not connect to docker: %s", err)
 	}
-	dockeresultelastic, err := pool.Run("elasticsearch", "latest", []string{})
-	purge = func() {
-		pool.Purge(dockeresultelastic)
-	}
-	if err != nil {
-		log.Fatalf("Could not start dockeresultelastic: %s", err)
-	}
 	config := ConfigStruct{}
 	err = json.Unmarshal([]byte(testDefaultConfig), &config)
 	if err != nil {
 		log.Fatalf("Could not unmarshal config: %s", err)
 	}
 	Config = &config
-	Config.ElasticUrl = "http://localhost:" + dockeresultelastic.GetPort("9200/tcp")
 
-	if err := pool.Retry(func() error {
-		localclient, err := elastic.NewClient(elastic.SetURL(Config.ElasticUrl), elastic.SetRetrier(newRetrier()))
-		if err != nil {
-			return err
+	elasticCloser, _, elasticIp, err := Elasticsearch(pool)
+	Config.ElasticUrl = "http://" + elasticIp + ":9200"
+	elasticClient = createClient()
+	client = elasticClient
+	purge = func() {
+		if conn != nil {
+			conn.Close()
 		}
-		ping, _, err := elastic.NewPingService(localclient).Do(context.Background())
-		if err != nil {
-			return err
-		}
-		if ping.Version.Number == "" {
-			return errors.New("empty ping result")
-		}
-		GetClient()
-		elasticClient = createClient()
-		client = elasticClient
-		log.Println(Config.ElasticUrl, client)
-		return nil
-	}); err != nil {
-		log.Fatalf("Could not connect to docker: %s", err)
+		elasticCloser()
+	}
+	if err != nil {
+		purge()
+		debug.PrintStack()
+		log.Fatal(err)
 	}
 	return
 }
